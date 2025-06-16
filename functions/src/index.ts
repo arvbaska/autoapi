@@ -1,17 +1,58 @@
-import * as functions from "firebase-functions";
-import express, {Request, Response} from "express";
+import * as functions from 'firebase-functions';
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import OpenAI from 'openai';
+import * as admin from 'firebase-admin';
+import dotenv from 'dotenv';
 
-export const helloWorld = functions.https.onRequest(
-  (req: Request, res: Response) => {
-    res.send("Hello from AutoAPI!");
-  }
-);
+dotenv.config();
+admin.initializeApp();
 
-
+const db = admin.firestore();
 const app = express();
+app.use(cors({ origin: true }));
+app.use(express.json());
 
-app.get("/", (req: Request, res: Response) => {
-  res.send("AutoAPI backend");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+app.get('/', (req: Request, res: Response) => {
+  res.send('AutoAPI backend');
+});
+
+app.post('/generate', async (req: Request, res: Response) => {
+  const { instruction, schema, uid } = req.body;
+  if (!instruction) {
+    res.status(400).json({ error: 'Missing instruction' });
+    return;
+  }
+  try {
+    const prompt = `User instruction: "${instruction}"
+Parsed API schema: ${schema || 'none'}`;
+    const system =
+      "You are a backend engineer. Generate complete integration code for the user's request using the API schema below. Include comments, error handling, and use Axios (or fetch).";
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+    });
+    const code = completion.choices[0]?.message?.content || '';
+
+    await db.collection('prompts').add({
+      uid: uid || null,
+      instruction,
+      schema: schema || null,
+      code,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({ code });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate code' });
+  }
 });
 
 export const appFunc = functions.https.onRequest(app);
