@@ -1,1 +1,6 @@
-import React from "react"; export default function App() { return <div>Welcome to AutoAPI</div>; }
+import React from 'react';
+import Home from './pages/Home';
+
+export default function App() {
+  return <Home />;
+}
