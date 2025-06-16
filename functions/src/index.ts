@@ -13,7 +13,14 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY.value() });
+let openaiKey: string | undefined;
+try {
+  openaiKey = OPENAI_API_KEY.value();
+} catch {
+  openaiKey = process.env.OPENAI_API_KEY;
+}
+
+const openai = new OpenAI({ apiKey: openaiKey });
 
 app.get('/', (req: Request, res: Response) => {
   res.send('AutoAPI backend');
