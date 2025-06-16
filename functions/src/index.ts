@@ -13,7 +13,14 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+
+function generateFallback(instruction: string, schema?: string): string {
+  return `// Fallback response because the OpenAI API is unavailable.\n` +
+    `// Instruction: ${instruction}\n` +
+    `// Schema: ${schema || 'none'}\n` +
+    `export async function handler() {\n  // TODO: implement manually\n}`;
+}
 
 app.get('/', (req: Request, res: Response) => {
   res.send('AutoAPI backend');
@@ -25,21 +32,27 @@ app.post('/generate', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Missing instruction' });
     return;
   }
+  let code = '';
   try {
-    const prompt = `User instruction: "${instruction}"
+    if (process.env.OPENAI_API_KEY) {
+      const prompt = `User instruction: "${instruction}"
 Parsed API schema: ${schema || 'none'}`;
-    const system =
-      "You are a backend engineer. Generate complete integration code for the user's request using the API schema below. Include comments, error handling, and use Axios (or fetch).";
+      const system =
+        "You are a backend engineer. Generate complete integration code for the user's request using the API schema below. Include comments, error handling, and use Axios (or fetch).";
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: prompt },
-      ],
-    });
-    const code = completion.choices[0]?.message?.content || '';
-
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt },
+        ],
+      });
+      code = completion.choices[0]?.message?.content || '';
+    } else {
+      console.warn('OPENAI_API_KEY not set, using fallback code generation');
+      code = generateFallback(instruction, schema);
+    }
+  
     await db.collection('prompts').add({
       uid: uid || null,
       instruction,
@@ -50,8 +63,9 @@ Parsed API schema: ${schema || 'none'}`;
 
     res.json({ code });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to generate code' });
+    console.error('OpenAI request failed', err);
+    code = generateFallback(instruction, schema);
+    res.json({ code });
   }
 });
 
